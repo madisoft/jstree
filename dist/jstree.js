@@ -13,7 +13,7 @@
 }(function ($, undefined) {
 	"use strict";
 /*!
- * jsTree 3.3.3
+ * jsTree 3.3.4
  * http://jstree.com/
  *
  * Copyright (c) 2014 Ivan Bozhanov (http://vakata.com)
@@ -54,7 +54,7 @@
 		 * specifies the jstree version in use
 		 * @name $.jstree.version
 		 */
-		version : '3.3.3',
+		version : '3.3.4',
 		/**
 		 * holds all the default options used when creating new instances
 		 * @name $.jstree.defaults
@@ -64,7 +64,20 @@
 			 * configure which plugins will be active on an instance. Should be an array of strings, where each element is a plugin name. The default is `[]`
 			 * @name $.jstree.defaults.plugins
 			 */
-			plugins : []
+			plugins : [],
+			/**
+			 * configure a transport for ajax call. You can use own ajax service (eg. fetch). Default $.ajax
+			 * Success function must have 3 arguments:
+			 * 	* data - the data returned
+			 *	* statusText
+			 *	* raw - the raw response. This object must provide getResponseHeader method who return a headers of response by key (see jquery implementation http://api.jquery.com/jQuery.ajax/#jqXHR)
+			 * @name $.jstree.defaults.transport
+			 */
+		        transport: function(params, success, error) {
+			  return $.ajax(params)
+			    .then(success)
+			    .catch(error);
+		        }
 		},
 		/**
 		 * stores all loaded jstree plugins (used internally)
@@ -338,7 +351,7 @@
 		 *	$('#tree').jstree({
 		 *		'core' : {
 		 *			'check_callback' : function (operation, node, node_parent, node_position, more) {
-		 *				// operation can be 'create_node', 'rename_node', 'delete_node', 'move_node' or 'copy_node'
+		 *				// operation can be 'create_node', 'rename_node', 'delete_node', 'move_node', 'copy_node' or 'edit'
 		 *				// in case of 'rename_node' node_position is filled with the new node name
 		 *				return operation === 'rename_node' ? true : false;
 		 *			}
@@ -826,7 +839,7 @@
 					}, this))
 				.on('blur.jstree', '.jstree-anchor', $.proxy(function (e) {
 						this._data.core.focused = null;
-						$(e.currentTarget).filter('.jstree-hovered').mouseleave();
+						$(e.currentTarget).filter('.jstree-hovered').trigger('mouseleave');
 						this.element.attr('tabindex', '0');
 					}, this))
 				.on('focus.jstree', '.jstree-anchor', $.proxy(function (e) {
@@ -834,8 +847,8 @@
 						if(tmp && tmp.id) {
 							this._data.core.focused = tmp.id;
 						}
-						this.element.find('.jstree-hovered').not(e.currentTarget).mouseleave();
-						$(e.currentTarget).mouseenter();
+						this.element.find('.jstree-hovered').not(e.currentTarget).trigger('mouseleave');
+						$(e.currentTarget).trigger('mouseenter');
 						this.element.attr('tabindex', '-1');
 					}, this))
 				.on('focus.jstree', $.proxy(function () {
@@ -1384,8 +1397,8 @@
 					if($.isFunction(s.data)) {
 						s.data = s.data.call(this, obj);
 					}
-					return $.ajax(s)
-						.done($.proxy(function (d,t,x) {
+					return this.settings.transport(s,
+						$.proxy(function (d,t,x) {
 								var type = x.getResponseHeader('Content-Type');
 								if((type && type.indexOf('json') !== -1) || typeof d === "object") {
 									return this._append_json_data(obj, d, function (status) { callback.call(this, status); });
@@ -1398,8 +1411,8 @@
 								this._data.core.last_error = { 'error' : 'ajax', 'plugin' : 'core', 'id' : 'core_04', 'reason' : 'Could not load node', 'data' : JSON.stringify({ 'id' : obj.id, 'xhr' : x }) };
 								this.settings.core.error.call(this, this._data.core.last_error);
 								return callback.call(this, false);
-							}, this))
-						.fail($.proxy(function (f) {
+							}, this),
+						$.proxy(function (f) {
 								callback.call(this, false);
 								this._data.core.last_error = { 'error' : 'ajax', 'plugin' : 'core', 'id' : 'core_04', 'reason' : 'Could not load node', 'data' : JSON.stringify({ 'id' : obj.id, 'xhr' : f }) };
 								this.settings.core.error.call(this, this._data.core.last_error);
@@ -3646,7 +3659,7 @@
 				'li_attr' : $.extend(true, {}, obj.li_attr),
 				'a_attr' : $.extend(true, {}, obj.a_attr),
 				'state' : {},
-				'data' : options && options.no_data ? false : ($.isArray(obj.data) ? obj.data.slice() : $.extend(true, {}, obj.data))
+				'data' : options && options.no_data ? false : $.extend(true, $.isArray(obj.data)?[]:{}, obj.data)
 				//( this.get_node(obj, true).length ? this.get_node(obj, true).data() : obj.data ),
 			}, i, j;
 			if(options && options.flat) {
@@ -4369,8 +4382,7 @@
 			var rtl, w, a, s, t, h1, h2, fn, tmp, cancel = false;
 			obj = this.get_node(obj);
 			if(!obj) { return false; }
-			if(this.settings.core.check_callback === false) {
-				this._data.core.last_error = { 'error' : 'check', 'plugin' : 'core', 'id' : 'core_07', 'reason' : 'Could not edit node because of check_callback' };
+			if(!this.check("edit", obj, this.get_parent(obj))) {
 				this.settings.core.error.call(this, this._data.core.last_error);
 				return false;
 			}
@@ -6364,7 +6376,7 @@
 					e.preventDefault();
 					var a = vakata_context.element.find('.vakata-contextmenu-shortcut-' + e.which).parent();
 					if(a.parent().not('.vakata-context-disabled')) {
-						a.click();
+						a.trigger('click');
 					}
 				});
 
@@ -7015,7 +7027,7 @@
 				}
 				else {
 					if(e.type === "touchend" && e.target === vakata_dnd.target) {
-						var to = setTimeout(function () { $(e.target).click(); }, 100);
+						var to = setTimeout(function () { $(e.target).trigger('click'); }, 100);
 						$(e.target).one('click', function() { if(to) { clearTimeout(to); } });
 					}
 				}
@@ -7104,8 +7116,8 @@
 						if($.isFunction(s.data)) {
 							s.data = s.data.call(this, toLoad);
 						}
-						return $.ajax(s)
-							.done($.proxy(function (data,t,x) {
+						return this.settings.transport(s,
+							$.proxy(function (data,t,x) {
 									var i, j;
 									if(data) {
 										for(i in data) {
@@ -7121,8 +7133,8 @@
 										}
 									}
 									parent._load_nodes.call(this, nodes, callback, is_callback, force_reload);
-								}, this))
-							.fail($.proxy(function (f) {
+								}, this),
+							$.proxy(function (f) {
 									parent._load_nodes.call(this, nodes, callback, is_callback, force_reload);
 								}, this));
 					}
@@ -7149,6 +7161,7 @@
 			return parent._load_node.call(this, obj, callback);
 		};
 	};
+
 
 /**
  * ### Search plugin
@@ -7312,16 +7325,16 @@
 					if (this._data.search.lastRequest) {
 						this._data.search.lastRequest.abort();
 					}
-					this._data.search.lastRequest = $.ajax(a)
-						.fail($.proxy(function () {
-							this._data.core.last_error = { 'error' : 'ajax', 'plugin' : 'search', 'id' : 'search_01', 'reason' : 'Could not load search parents', 'data' : JSON.stringify(a) };
-							this.settings.core.error.call(this, this._data.core.last_error);
-						}, this))
-						.done($.proxy(function (d) {
+					this._data.search.lastRequest = this.settings.transport(a,
+						$.proxy(function (d) {
 							if(d && d.d) { d = d.d; }
 							this._load_nodes(!$.isArray(d) ? [] : $.vakata.array_unique(d), function () {
 								this.search(str, true, show_only_matches, inside, append, show_only_matches_children);
 							});
+						}, this),
+						$.proxy(function () {
+							this._data.core.last_error = { 'error' : 'ajax', 'plugin' : 'search', 'id' : 'search_01', 'reason' : 'Could not load search parents', 'data' : JSON.stringify(a) };
+							this.settings.core.error.call(this, this._data.core.last_error);
 						}, this));
 					return this._data.search.lastRequest;
 				}
